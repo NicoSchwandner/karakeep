@@ -123,6 +123,7 @@ import {
   redactUrlCredentials,
   shouldRetryCrawlStatusCode,
   truncateUrl,
+  withDownloadTimeout,
 } from "./utils/crawlerUtils";
 import {
   isLikelyChallengePage,
@@ -2013,10 +2014,19 @@ const downloadAndStoreBanner = traced(
       "bookmark.url": url,
       "bookmark.domain": getBookmarkDomain(url),
     });
+    // The banner is optional, so a slow or hanging image host gets its own
+    // budget instead of using up the whole crawl's (#1667).
+    const bannerCtx: CrawlContext = {
+      ...ctx,
+      abortSignal: withDownloadTimeout(
+        ctx.abortSignal,
+        serverConfig.crawler.bannerDownloadTimeoutSec,
+      ),
+    };
     try {
       const banner = url.startsWith("data:")
         ? decodeDataUriImage(ctx, url)
-        : await fetchImage(ctx, url);
+        : await fetchImage(bannerCtx, url);
       if (!banner) {
         return null;
       }
@@ -2039,6 +2049,12 @@ const downloadAndStoreBanner = traced(
         size: toStore.image.byteLength,
       };
     } catch (e) {
+      if (bannerCtx.abortSignal.aborted && !ctx.abortSignal.aborted) {
+        ctx.log.warn(
+          `Skipping the banner image: the download didn't finish within ${serverConfig.crawler.bannerDownloadTimeoutSec}s`,
+        );
+        return null;
+      }
       ctx.log.error(`Failed to download and store the banner image: ${e}`);
       // A crawler timeout aborts the job-wide signal. Do not turn that abort
       // into a best-effort download miss: the queue runner must observe it so
