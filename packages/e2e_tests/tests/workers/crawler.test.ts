@@ -113,8 +113,13 @@ describe("Crawler Tests", () => {
       const data = await getBookmark(bookmark!.id);
       assert(data);
       assert(data.content.type === "link");
-      return data.content.crawledAt !== null;
-    }, "Bookmark is crawled");
+      // crawlStatus is set once the job is done (crawledAt is written before
+      // the job's last steps), and only fails after the last retry.
+      return (
+        data.content.crawlStatus === "success" ||
+        data.content.crawlStatus === "failure"
+      );
+    }, "Bookmark crawl finished");
 
     bookmark = await getBookmark(bookmark.id);
     assert(bookmark && bookmark.content.type === "link");
