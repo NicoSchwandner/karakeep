@@ -30,7 +30,6 @@ import {
   parseSubprocessInputSchema,
   parseSubprocessOutputSchema,
 } from "../workers/utils/parseHtmlSubprocessIpc";
-import { stashInlineImages } from "../workers/utils/inlineImages";
 import {
   assessReaderView,
   ReaderViewAssessment,
@@ -230,13 +229,7 @@ async function main() {
       `[Crawler][${jobId}] Replaced ${parserInput.replacementCount} embedded audio/video data URIs (${parserInput.replacedBytes} bytes) before parsing.`,
     );
   }
-  const inlineImages = stashInlineImages(parserInput.htmlContent);
-  if (inlineImages.count > 0) {
-    logger.info(
-      `[Crawler][${jobId}] Set aside ${inlineImages.count} inline images (${inlineImages.bytes} bytes) while parsing.`,
-    );
-  }
-  const { htmlContent } = inlineImages;
+  const { htmlContent } = parserInput;
 
   logger.info(
     `[Crawler][${jobId}] Will attempt to extract metadata from page ...`,
@@ -298,9 +291,8 @@ async function main() {
     readerViewAssessment,
   });
 
-  // Write the result as JSON to stdout, with the inline images put back into
-  // the readable content (and wherever else a placeholder ended up).
-  process.stdout.write(inlineImages.restore(JSON.stringify(output)));
+  // Write the result as JSON to stdout
+  process.stdout.write(JSON.stringify(output));
 }
 
 main().catch(async (err: unknown) => {

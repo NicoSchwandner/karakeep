@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: ["*"]
   push:
-    branches: ["main", "e2e-check"]
+    branches: ["main", "e2e-check", "e2e-control"]
   merge_group:
 
 concurrency:
