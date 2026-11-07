@@ -98,6 +98,34 @@ describe("Crawler Tests", () => {
     ).toBeDefined();
   });
 
+  it("should skip a banner image that never finishes downloading", async () => {
+    let { data: bookmark } = await client.POST("/bookmarks", {
+      body: {
+        type: "link",
+        url: "http://nginx:80/slow-banner.html",
+      },
+    });
+    assert(bookmark);
+
+    // The banner gets its own budget (10s by default), well inside the job
+    // timeout, so the crawl completes instead of timing out on the image.
+    await waitUntil(async () => {
+      const data = await getBookmark(bookmark!.id);
+      assert(data);
+      assert(data.content.type === "link");
+      return data.content.crawledAt !== null;
+    }, "Bookmark is crawled");
+
+    bookmark = await getBookmark(bookmark.id);
+    assert(bookmark && bookmark.content.type === "link");
+    expect(bookmark.content.crawlStatus).toBe("success");
+    expect(bookmark.content.title).toBe("Slow banner");
+    expect(bookmark.content.imageUrl).toBe("http://nginx:80/slow-banner.png");
+    expect(
+      bookmark.assets.find((a) => a.assetType === "bannerImage"),
+    ).toBeUndefined();
+  });
+
   it("should fail crawling a disallowed non-redirect URL", async () => {
     let { data: bookmark } = await client.POST("/bookmarks", {
       body: {
