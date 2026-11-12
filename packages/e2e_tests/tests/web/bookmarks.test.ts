@@ -4,8 +4,10 @@ import { expect } from "playwright/test";
 import { BookmarkTypes } from "@karakeep/shared/types/bookmarks";
 
 import {
+  bookmarkEditor,
   createWebTestUser,
   it,
+  reload,
   signIn,
   WORKER_TEST_TIMEOUT,
 } from "../../utils/browser";
@@ -29,9 +31,7 @@ it(
   async ({ page }) => {
     const { trpc, email } = await createWebTestUser();
     await signIn(page, email);
-    await page
-      .getByPlaceholder("Paste a link, write a note or drop an image…")
-      .fill("http://nginx/hello.html");
+    await bookmarkEditor(page).fill("http://nginx/hello.html");
     await page.getByRole("button", { name: /^Save/ }).click();
     const cards = page.locator("[data-bookmark-index]");
     await expect(cards).toHaveCount(1);
@@ -66,17 +66,19 @@ it(
 it("favorites a bookmark and shows it in Favourites", async ({ page }) => {
   const bookmark = await seedBookmark(page);
   await bookmark.hover();
-  await bookmark.getByRole("button", { name: "Favorite", exact: true }).click();
+  await bookmark
+    .getByRole("button", { name: "Favourite", exact: true })
+    .click();
   await expect(
-    bookmark.getByRole("button", { name: "Unfavorite", exact: true }),
+    bookmark.getByRole("button", { name: "Unfavourite", exact: true }),
   ).toBeVisible();
   await page.getByRole("link", { name: /Favourites/ }).click();
   await expect(page).toHaveURL(/\/dashboard\/favourites$/);
   await expect(bookmark).toHaveText(/A bookmark for the weekend/);
-  await page.reload();
+  await reload(page);
   await bookmark.hover();
   await expect(
-    bookmark.getByRole("button", { name: "Unfavorite", exact: true }),
+    bookmark.getByRole("button", { name: "Unfavourite", exact: true }),
   ).toBeVisible();
 });
 
@@ -88,10 +90,10 @@ it("archives a bookmark and shows it in Archive", async ({ page }) => {
   await page.getByRole("link", { name: "Archive", exact: true }).click();
   await expect(page).toHaveURL(/\/dashboard\/archive$/);
   await expect(bookmark).toHaveText(/A bookmark for the weekend/);
-  await page.reload();
+  await reload(page);
   await bookmark.hover();
   await expect(
-    bookmark.getByRole("button", { name: "Un-archive", exact: true }),
+    bookmark.getByRole("button", { name: "Restore", exact: true }),
   ).toBeVisible();
 });
 
@@ -100,13 +102,11 @@ it("deletes a bookmark after confirmation", async ({ page }) => {
   await bookmark.locator('button[aria-haspopup="menu"]').click();
   await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
   await page
-    .getByRole("dialog", { name: "Delete Bookmark?" })
+    .getByRole("dialog", { name: "Delete bookmark" })
     .getByRole("button", { name: "Delete", exact: true })
     .click();
   await expect(bookmark).toHaveCount(0);
-  await page.reload();
-  await expect(
-    page.getByPlaceholder("Paste a link, write a note or drop an image…"),
-  ).toBeVisible();
+  await reload(page);
+  await expect(bookmarkEditor(page)).toBeVisible();
   await expect(bookmark).toHaveCount(0);
 });

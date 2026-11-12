@@ -7,6 +7,7 @@ import {
   bookmarkCards,
   createWebTestUser,
   it,
+  reload,
   signIn,
   WORKER_TEST_TIMEOUT,
 } from "../../utils/browser";
@@ -94,7 +95,9 @@ async function search(page: Page, query: string) {
 async function expectResults(page: Page, expected: Marker[]) {
   const cards = bookmarkCards(page);
   if (expected.length === 0) {
-    await expect(page.getByText("No bookmarks yet")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "No matches", exact: true }),
+    ).toBeVisible();
     await expect(cards).toHaveCount(0);
     return;
   }
@@ -121,7 +124,7 @@ it(
     await expectResults(page, ["Pelican", "Narwhal", "Axolotl"]);
 
     // The query lives in the URL, so it survives a reload.
-    await page.reload();
+    await reload(page);
     await expectResults(page, ["Pelican", "Narwhal", "Axolotl"]);
   },
 );

@@ -7,7 +7,9 @@ import { BookmarkTypes } from "@karakeep/shared/types/bookmarks";
 import {
   bookmarkCards,
   createWebTestUser,
+  goto,
   it,
+  reload,
   signIn,
   WORKER_TEST_TIMEOUT,
 } from "../../utils/browser";
@@ -15,7 +17,7 @@ import {
 async function exportBookmarks(page: Page): Promise<string> {
   const [download]: [Download, void] = await Promise.all([
     page.waitForEvent("download"),
-    page.getByRole("button", { name: "Export", exact: true }).click(),
+    page.getByRole("button", { name: "Export bookmarks", exact: true }).click(),
   ]);
   const path = await download.path();
   return readFile(path, "utf-8");
@@ -51,9 +53,9 @@ it("exports bookmarks as Karakeep JSON and Netscape HTML", async ({ page }) => {
   });
   await signIn(page, email);
 
-  await page.goto("/settings/import");
+  await goto(page, "/settings/import");
   await expect(
-    page.getByRole("heading", { name: "Import / Export", exact: true }),
+    page.getByRole("heading", { name: "Import / export", exact: true }),
   ).toBeVisible();
 
   const json = JSON.parse(await exportBookmarks(page)) as {
@@ -95,15 +97,17 @@ it(
     const { trpc, email } = await createWebTestUser();
     await signIn(page, email);
 
-    await page.goto("/settings/import");
+    await goto(page, "/settings/import");
     await expect(page.getByText("No import sessions yet")).toBeVisible();
 
-    const htmlCard = page
-      .locator("div")
-      .filter({ has: page.getByRole("heading", { name: "HTML File" }) })
-      .filter({ has: page.locator('input[type="file"]') })
-      .last();
-    await htmlCard.locator('input[type="file"]').setInputFiles({
+    // Each source is a button that opens its own (hidden) file input.
+    const htmlSource = page.getByRole("listitem").filter({
+      has: page.getByRole("button", {
+        name: "Import from Browser bookmarks (HTML)",
+        exact: true,
+      }),
+    });
+    await htmlSource.locator('input[type="file"]').setInputFiles({
       name: "bookmarks.html",
       mimeType: "text/html",
       buffer: Buffer.from(NETSCAPE_FILE),
@@ -137,14 +141,14 @@ it(
       "web",
     ]);
 
-    // The folder structure is recreated under an "Imported Bookmarks" list.
+    // The folder structure is recreated under an "Imported bookmarks" list.
     const { lists } = await trpc.lists.list.query();
-    const root = lists.find((l) => l.name === "Imported Bookmarks");
+    const root = lists.find((l) => l.name === "Imported bookmarks");
     const folder = lists.find((l) => l.name === "Research");
     expect(root).toBeDefined();
     expect(folder?.parentId).toBe(root?.id);
 
-    await page.goto("/dashboard/bookmarks");
+    await goto(page, "/dashboard/bookmarks");
     const cards = bookmarkCards(page);
     await expect(
       cards.filter({ hasText: "Imported research page" }),
@@ -162,35 +166,41 @@ it(
     const { trpc, email } = await createWebTestUser();
     await signIn(page, email);
 
-    await page.goto("/settings/feeds");
+    await goto(page, "/settings/feeds");
     await expect(
-      page.getByText("You don't have any RSS subscriptions yet."),
+      page.getByText("No RSS subscriptions yet", { exact: true }),
     ).toBeVisible();
     await page
-      .getByRole("button", { name: "Add a Subscription", exact: true })
+      .getByRole("button", { name: "New subscription", exact: true })
       .click();
-    const dialog = page.getByRole("dialog", {
-      name: "Subscribe to a new Feed",
-    });
+    const dialog = page.getByRole("dialog", { name: "New subscription" });
     await dialog.getByLabel("Name", { exact: true }).fill("Test blog");
     await dialog
       .getByLabel("URL", { exact: true })
       .fill("http://nginx:80/feed.xml");
-    await dialog.getByRole("button", { name: "Add", exact: true }).click();
+    await dialog
+      .getByRole("button", { name: "Create subscription", exact: true })
+      .click();
     await expect(dialog).not.toBeVisible();
-    await expect(page.getByText("Feed has been created!")).toBeVisible();
+    await expect(page.getByText("Feed created", { exact: true })).toBeVisible();
 
     const row = page.getByRole("row").filter({ hasText: "Test blog" });
     await expect(row).toContainText("http://nginx:80/feed.xml");
     await expect(row.getByRole("switch")).toBeChecked();
     const [feed] = (await trpc.feeds.list.query()).feeds;
 
-    // The fetch button is icon-only; its tooltip identifies it.
-    const fetchButton = row.getByRole("button").nth(1);
-    await fetchButton.hover();
-    await expect(page.getByRole("tooltip")).toHaveText("Fetch Now");
-    await fetchButton.click();
-    await expect(page.getByText("Feed fetch has been enqueued!")).toBeVisible();
+    // Each row's actions are in a menu named after the feed.
+    const rowMenu = row.getByRole("button", {
+      name: "Actions for Test blog",
+      exact: true,
+    });
+    await rowMenu.click();
+    await page
+      .getByRole("menuitem", { name: "Fetch now", exact: true })
+      .click();
+    await expect(
+      page.getByText("Feed fetch enqueued", { exact: true }),
+    ).toBeVisible();
     await expect
       .poll(
         async () =>
@@ -198,8 +208,8 @@ it(
         { timeout: 90000 },
       )
       .toBe("success");
-    await page.reload();
-    await expect(row.getByTitle("Successful")).toBeVisible();
+    await reload(page);
+    await expect(row.getByText("Successful", { exact: true })).toBeVisible();
 
     await row.getByRole("link", { name: "Test blog" }).click();
     await expect(page).toHaveURL(new RegExp(`/dashboard/feeds/${feed.id}$`));
@@ -209,22 +219,21 @@ it(
       cards.filter({ hasText: "Second Test Article" }),
     ).toBeVisible();
 
-    await page.goto("/settings/feeds");
+    await goto(page, "/settings/feeds");
     await row.getByRole("switch").click();
-    await expect(page.getByText("RSS Feed disabled")).toBeVisible();
+    await expect(page.getByText("RSS feed disabled")).toBeVisible();
     await expect(row.getByRole("switch")).not.toBeChecked();
     expect((await trpc.feeds.get.query({ feedId: feed.id })).enabled).toBe(
       false,
     );
 
-    await row.getByRole("button").last().click();
-    const confirm = page.getByRole("dialog", {
-      name: 'Delete Feed "Test blog"?',
-    });
+    await rowMenu.click();
+    await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
+    const confirm = page.getByRole("dialog", { name: "Delete Test blog?" });
     await confirm.getByRole("button", { name: "Delete", exact: true }).click();
     await expect(row).not.toBeVisible();
     await expect(
-      page.getByText("You don't have any RSS subscriptions yet."),
+      page.getByText("No RSS subscriptions yet", { exact: true }),
     ).toBeVisible();
     expect((await trpc.feeds.list.query()).feeds).toHaveLength(0);
   },
