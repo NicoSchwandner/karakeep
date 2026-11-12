@@ -6,7 +6,9 @@ import { BookmarkTypes } from "@karakeep/shared/types/bookmarks";
 import {
   bookmarkCards,
   createWebTestUser,
+  goto,
   it,
+  reload,
   signIn,
   waitForTaggingToFinish,
   WORKER_TEST_TIMEOUT,
@@ -77,8 +79,10 @@ it(
     const card = bookmarkCards(page);
     await expect(card).toHaveCount(1);
     await card.locator('button[aria-haspopup="menu"]').click();
-    await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
-    const dialog = page.getByRole("dialog", { name: "Edit Bookmark" });
+    await page
+      .getByRole("menuitem", { name: "Edit details", exact: true })
+      .click();
+    const dialog = page.getByRole("dialog", { name: "Edit details" });
 
     await dialog.getByRole("button", { name: "Remove obsolete" }).click();
     await expect(
@@ -95,7 +99,10 @@ it(
       await tagInput.fill("conference-2026");
       // The tag doesn't exist yet, so the only option is the one creating it.
       await page
-        .getByRole("option", { name: "conference-2026", exact: true })
+        .getByRole("option", {
+          name: 'Create "conference-2026"',
+          exact: true,
+        })
         .click({ timeout: 2000 });
     });
     await expect(
@@ -118,7 +125,7 @@ it(
       card.getByRole("link", { name: "obsolete", exact: true }),
     ).toHaveCount(0);
 
-    await page.reload();
+    await reload(page);
     await expect(
       card.getByRole("link", { name: "conference-2026", exact: true }),
     ).toBeVisible();
@@ -165,16 +172,16 @@ it("creates a tag from the tags page", async ({ page }) => {
   await page.getByRole("link", { name: "Tags", exact: true }).click();
   await expect(page).toHaveURL(/\/dashboard\/tags$/);
 
-  await page.getByRole("button", { name: "Create Tag", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "Create Tag" });
-  await dialog.getByLabel("Tag Name").fill("someday");
+  await page.getByRole("button", { name: "New tag", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "New tag" });
+  await dialog.getByLabel("Tag name").fill("someday");
   await dialog.getByRole("button", { name: "Create", exact: true }).click();
   await expect(dialog).not.toBeVisible();
 
   // A freshly created tag isn't attached to anything yet.
   const tagPill = page.getByRole("link", { name: /^someday\s*0$/ });
   await expect(tagPill).toBeVisible();
-  await page.reload();
+  await reload(page);
   await expect(tagPill).toBeVisible();
   const tag = await getTagByName(trpc, "someday");
   expect(tag?.numBookmarks).toBe(0);
@@ -187,7 +194,7 @@ it("deletes a tag from the tags page", async ({ page }) => {
     "keeper",
   ]);
   await signIn(page, email);
-  await page.goto("/dashboard/tags");
+  await goto(page, "/dashboard/tags");
 
   const stalePill = page.getByRole("link", { name: /^stale\s*1$/ });
   await stalePill.hover();
@@ -198,7 +205,7 @@ it("deletes a tag from the tags page", async ({ page }) => {
   await expect(dialog).not.toBeVisible();
   await expect(stalePill).toHaveCount(0);
 
-  await page.reload();
+  await reload(page);
   await expect(page.getByRole("link", { name: /^keeper\s*1$/ })).toBeVisible();
   await expect(stalePill).toHaveCount(0);
   expect(await getTagByName(trpc, "stale")).toBeUndefined();
@@ -214,13 +221,13 @@ it(
     await waitForTaggingToFinish(trpc, chapter.id);
     const draft = await getTagByName(trpc, "draft");
     await signIn(page, email);
-    await page.goto(`/dashboard/tags/${draft!.id}`);
+    await goto(page, `/dashboard/tags/${draft!.id}`);
 
     await openTagOptions(page, "draft");
     await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
-    const dialog = page.getByRole("dialog", { name: "Rename Tag" });
-    await expect(dialog.getByLabel("Tag Name")).toHaveValue("draft");
-    await dialog.getByLabel("Tag Name").fill("published");
+    const dialog = page.getByRole("dialog", { name: "Rename tag" });
+    await expect(dialog.getByLabel("Tag name")).toHaveValue("draft");
+    await dialog.getByLabel("Tag name").fill("published");
     await dialog.getByRole("button", { name: "Save", exact: true }).click();
     await expect(dialog).not.toBeVisible();
 
@@ -230,7 +237,7 @@ it(
       exact: true,
     });
     await expect(heading).toBeVisible();
-    await page.reload();
+    await reload(page);
     await expect(heading).toBeVisible();
     const card = bookmarkCards(page);
     await expect(card).toHaveCount(1);
@@ -250,11 +257,11 @@ it("merges a tag into another from its tag page", async ({ page }) => {
   const js = await getTagByName(trpc, "js");
   const javascript = await getTagByName(trpc, "javascript");
   await signIn(page, email);
-  await page.goto(`/dashboard/tags/${js!.id}`);
+  await goto(page, `/dashboard/tags/${js!.id}`);
 
   await openTagOptions(page, "js");
   await page.getByRole("menuitem", { name: "Merge", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "Merge Tag" });
+  const dialog = page.getByRole("dialog", { name: "Merge tag" });
   await retryIfPopoverIsDismissed(async () => {
     if ((await page.getByRole("listbox").count()) === 0) {
       await dialog.getByRole("combobox").click();

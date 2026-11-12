@@ -3,7 +3,13 @@ import { randomUUID } from "node:crypto";
 import { expect } from "playwright/test";
 import { inject } from "vitest";
 
-import { it, signIn, submitSignInForm } from "../../utils/browser";
+import {
+  goto,
+  it,
+  reload,
+  signIn,
+  submitSignInForm,
+} from "../../utils/browser";
 import { getTrpcClient } from "../../utils/trpc";
 
 const PASSWORD = "test1234";
@@ -80,16 +86,18 @@ it("shows the admin area only to admins", async ({ page }) => {
     page.getByRole("menu"),
   );
   await expect(
-    page.getByRole("menuitem", { name: "User Settings", exact: true }),
+    page.getByRole("menuitem", { name: "Settings", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("menuitem", { name: "Admin Settings" }),
+    page.getByRole("menuitem", { name: "Admin settings" }),
   ).toHaveCount(0);
   await page.keyboard.press("Escape");
 
-  await page.goto("/admin/users");
-  await expect(page).toHaveURL(/\/dashboard\/bookmarks$/);
-  await expect(page.getByText("Users List", { exact: true })).toHaveCount(0);
+  // Non-admins get an explanation instead of a redirect.
+  await goto(page, "/admin/users");
+  await expect(page).toHaveURL(/\/admin\/users$/);
+  await expect(page.getByText("Admins only", { exact: true })).toBeVisible();
+  await expect(page.getByText("Users", { exact: true })).toHaveCount(0);
 
   await page.context().clearCookies();
   const admin = await createUser("admin", "Ada Admin");
@@ -98,10 +106,10 @@ it("shows the admin area only to admins", async ({ page }) => {
     page.getByRole("button", { name: "A", exact: true }),
     page.getByRole("menu"),
   );
-  await page.getByRole("menuitem", { name: "Admin Settings" }).click();
+  await page.getByRole("menuitem", { name: "Admin settings" }).click();
   await expect(page).toHaveURL(/\/admin\/overview$/);
   await expect(
-    page.getByRole("main").getByText("Server Stats", { exact: true }),
+    page.getByRole("main").getByText("Server stats", { exact: true }),
   ).toBeVisible();
 });
 
@@ -110,17 +118,17 @@ it("creates a user from the users page and the user can sign in", async ({
 }) => {
   const admin = await createUser("admin", "Ada Admin");
   await signIn(page, admin.email);
-  await page.goto("/admin/users");
+  await goto(page, "/admin/users");
   await expect(userRow(page, admin.email)).toBeVisible();
 
   const email = uniqueEmail("admin-e2e-created");
   // The create button is the only button in the users card header.
-  const dialog = page.getByRole("dialog", { name: "Add User" });
-  await openWith(cardHeaderButton(page, "Users List"), dialog);
+  const dialog = page.getByRole("dialog", { name: "New user" });
+  await openWith(cardHeaderButton(page, "Users"), dialog);
   await dialog.getByLabel("Name", { exact: true }).fill("Casey Created");
   await dialog.getByLabel("Email", { exact: true }).fill(email);
   await dialog.getByLabel("Password", { exact: true }).fill(PASSWORD);
-  await dialog.getByLabel("Confirm Password", { exact: true }).fill(PASSWORD);
+  await dialog.getByLabel("Confirm password", { exact: true }).fill(PASSWORD);
   await dialog.getByRole("button", { name: "Create", exact: true }).click();
   // The dialog closes once the password is hashed, which is slow while other
   // tests are hashing passwords too.
@@ -129,7 +137,7 @@ it("creates a user from the users page and the user can sign in", async ({
   const row = userRow(page, email);
   await expect(row).toContainText("Casey Created");
   await expect(row).toContainText("User");
-  await page.reload();
+  await reload(page);
   await expect(row).toContainText("Casey Created");
 
   const created = await seedAdminTrpc().admin.getUser.query({ email });
@@ -148,20 +156,20 @@ it("updates a user's role and quotas", async ({ page }) => {
   const admin = await createUser("admin", "Ada Admin");
   const target = await createUser("user", "Una Updated");
   await signIn(page, admin.email);
-  await page.goto("/admin/users");
+  await goto(page, "/admin/users");
 
-  const dialog = page.getByRole("dialog", { name: "Edit User" });
+  const dialog = page.getByRole("dialog", { name: "Edit user" });
   await openWith(userRowAction(page, target.email, "edit"), dialog);
   await dialog.getByRole("combobox").click();
   await page.getByRole("option", { name: "Admin", exact: true }).click();
-  await dialog.getByLabel("Bookmark Quota", { exact: true }).fill("25");
+  await dialog.getByLabel("Bookmark quota", { exact: true }).fill("25");
   await dialog
-    .getByLabel("Storage Quota (bytes)", { exact: true })
+    .getByLabel("Storage quota (bytes)", { exact: true })
     .fill("1048576");
   await dialog.getByRole("button", { name: "Update", exact: true }).click();
   await expect(page.getByText("User updated successfully")).toBeVisible();
 
-  await page.reload();
+  await reload(page);
   const row = userRow(page, target.email);
   await expect(row).toContainText("0 / 25");
   await expect(row).toContainText("0 Bytes / 1.00 MB");
@@ -175,17 +183,17 @@ it("updates a user's role and quotas", async ({ page }) => {
   // The dialog is prefilled with the saved values, and clearing a quota
   // makes it unlimited again.
   await openWith(userRowAction(page, target.email, "edit"), dialog);
-  const bookmarkQuota = dialog.getByLabel("Bookmark Quota", { exact: true });
+  const bookmarkQuota = dialog.getByLabel("Bookmark quota", { exact: true });
   await expect(bookmarkQuota).toHaveValue("25");
   await expect(
-    dialog.getByLabel("Storage Quota (bytes)", { exact: true }),
+    dialog.getByLabel("Storage quota (bytes)", { exact: true }),
   ).toHaveValue("1048576");
   await expect(dialog.getByRole("combobox")).toHaveText("Admin");
   await bookmarkQuota.clear();
   await dialog.getByRole("button", { name: "Update", exact: true }).click();
   await expect(dialog).not.toBeVisible();
 
-  await page.reload();
+  await reload(page);
   await expect(row).toContainText("0 / Unlimited");
   expect(
     await seedAdminTrpc().admin.getUser.query({ id: target.id }),
@@ -202,14 +210,14 @@ it("resets a user's password so they sign in with the new one", async ({
   const admin = await createUser("admin", "Ada Admin");
   const target = await createUser("user", "Pat Password");
   await signIn(page, admin.email);
-  await page.goto("/admin/users");
+  await goto(page, "/admin/users");
 
   const newPassword = `new-${randomUUID()}`;
-  const dialog = page.getByRole("dialog", { name: "Reset Password" });
+  const dialog = page.getByRole("dialog", { name: "Reset password" });
   await openWith(userRowAction(page, target.email, "resetPassword"), dialog);
-  await dialog.getByLabel("New Password", { exact: true }).fill(newPassword);
+  await dialog.getByLabel("New password", { exact: true }).fill(newPassword);
   await dialog
-    .getByLabel("Confirm New Password", { exact: true })
+    .getByLabel("Confirm new password", { exact: true })
     .fill(newPassword);
   await dialog.getByRole("button", { name: "Reset", exact: true }).click();
   // See the create test: the dialog closes once the password is hashed.
@@ -230,14 +238,14 @@ it("deletes a user from the users page", async ({ page }) => {
   const admin = await createUser("admin", "Ada Admin");
   const target = await createUser("user", "Dana Deleted");
   await signIn(page, admin.email);
-  await page.goto("/admin/users");
+  await goto(page, "/admin/users");
 
-  const dialog = page.getByRole("dialog", { name: "Delete User" });
+  const dialog = page.getByRole("dialog", { name: "Delete user" });
   await openWith(userRowAction(page, target.email, "delete"), dialog);
   await expect(dialog).toContainText("Dana Deleted");
   await dialog.getByRole("button", { name: "Delete", exact: true }).click();
   await expect(page.getByText("User deleted", { exact: true })).toBeVisible();
-  await page.reload();
+  await reload(page);
   await expect(userRow(page, admin.email)).toBeVisible();
   await expect(userRow(page, target.email)).toHaveCount(0);
 
@@ -249,52 +257,52 @@ it("deletes a user from the users page", async ({ page }) => {
 it("sends and revokes an invite", async ({ page }) => {
   const admin = await createUser("admin", "Ada Admin");
   await signIn(page, admin.email);
-  await page.goto("/admin/users");
+  await goto(page, "/admin/users");
 
   const email = uniqueEmail("admin-e2e-invite");
-  const dialog = page.getByRole("dialog", { name: "Send User Invitation" });
-  await openWith(cardHeaderButton(page, /^User Invitations \(\d+\)$/), dialog);
-  await dialog.getByLabel("Email Address", { exact: true }).fill(email);
+  const dialog = page.getByRole("dialog", { name: "Send user invitation" });
+  await openWith(cardHeaderButton(page, /^User invitations \(\d+\)$/), dialog);
+  await dialog.getByLabel("Email address", { exact: true }).fill(email);
   await dialog
-    .getByRole("button", { name: "Send Invitation", exact: true })
+    .getByRole("button", { name: "Send invitation", exact: true })
     .click();
   await expect(dialog).not.toBeVisible();
 
   const row = page.getByRole("row").filter({ hasText: email });
   await expect(row).toContainText("Ada Admin");
-  await page.reload();
+  await reload(page);
   await expect(row).toContainText("Ada Admin");
 
   // Actions are resend, then revoke.
-  const confirm = page.getByRole("dialog", { name: "Revoke Invite" });
+  const confirm = page.getByRole("dialog", { name: "Revoke invite" });
   await openWith(row.getByRole("button").nth(1), confirm);
   await expect(confirm).toContainText(email);
   await confirm.getByRole("button", { name: "Revoke", exact: true }).click();
   await expect(confirm).not.toBeVisible();
   await expect(row).toHaveCount(0);
-  await page.reload();
-  await expect(page.getByText(/^User Invitations \(\d+\)$/)).toBeVisible();
+  await reload(page);
+  await expect(page.getByText(/^User invitations \(\d+\)$/)).toBeVisible();
   await expect(row).toHaveCount(0);
 });
 
 it("renders the overview and background jobs pages", async ({ page }) => {
   const admin = await createUser("admin", "Ada Admin");
   await signIn(page, admin.email);
-  await page.goto("/admin");
+  await goto(page, "/admin");
   await expect(page).toHaveURL(/\/admin\/overview$/);
 
   const main = page.getByRole("main");
-  await expect(main.getByText("Server Stats", { exact: true })).toBeVisible();
-  await expect(main.getByText("Total Users", { exact: true })).toBeVisible();
+  await expect(main.getByText("Server stats", { exact: true })).toBeVisible();
+  await expect(main.getByText("Total users", { exact: true })).toBeVisible();
   await expect(
-    main.getByText("Total Bookmarks", { exact: true }),
+    main.getByText("Total bookmarks", { exact: true }),
   ).toBeVisible();
-  await expect(main.getByText("Server Version", { exact: true })).toBeVisible();
+  await expect(main.getByText("Server version", { exact: true })).toBeVisible();
 
   await expect(
-    main.getByText("Service Connections", { exact: true }),
+    main.getByText("Service connections", { exact: true }),
   ).toBeVisible();
-  for (const service of ["Search Engine", "Browser", "Queue System"]) {
+  for (const service of ["Search engine", "Browser", "Queue system"]) {
     const card = page
       .locator("div.rounded-lg")
       .filter({ has: page.getByText(service, { exact: true }) });
@@ -302,24 +310,24 @@ it("renders the overview and background jobs pages", async ({ page }) => {
   }
 
   await page
-    .getByRole("link", { name: "Background Jobs", exact: true })
+    .getByRole("link", { name: "Background jobs", exact: true })
     .click();
   await expect(page).toHaveURL(/\/admin\/background_jobs$/);
   await expect(
-    page.getByRole("heading", { name: "Background Jobs", exact: true }),
+    page.getByRole("heading", { name: "Background jobs", exact: true }),
   ).toBeVisible();
   for (const job of [
-    "Crawler Jobs",
-    "Inference Jobs",
-    "Indexing Jobs",
-    "Webhook Jobs",
-    "RSS Feed Jobs",
+    "Crawler jobs",
+    "Inference jobs",
+    "Indexing jobs",
+    "Webhook jobs",
+    "RSS feed jobs",
   ]) {
     await expect(
       page.getByRole("heading", { name: job, exact: true }),
     ).toBeVisible();
   }
   await expect(
-    page.getByRole("button", { name: "Reindex All Bookmarks" }),
+    page.getByRole("button", { name: "Reindex all bookmarks" }),
   ).toBeVisible();
 });
